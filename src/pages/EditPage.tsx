@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { getTerm, newId, saveTerm, removeTerm, peekTerm, type Term } from '../store';
+import { getTerm, newId, saveTerm, removeTerm, peekTerm, uploadImage as commitImage, type Term } from '../store';
 import { READING_PATTERN, toHiragana } from '../kana';
 import { href, navigate } from '../router';
-import { getToken, putFile, bytesToBase64 } from '../github';
+import { getToken } from '../github';
 import { Markdown, localImages } from '../Markdown';
 import { BackLink } from './DetailPage';
 
@@ -76,7 +76,7 @@ export function EditPage({ id }: { id?: string }) {
     try {
       const fileName = `${termId}-${Date.now().toString(36)}.${ext}`;
       const bytes = new Uint8Array(await file.arrayBuffer());
-      await putFile(`public/data/images/${fileName}`, bytesToBase64(bytes), `Add image: ${fileName}`);
+      await commitImage(fileName, bytes);
       localImages.set(fileName, URL.createObjectURL(file));
       insert(`\n![${file.name.replace(/\.[^.]+$/, '')}](images/${fileName})\n`);
     } catch (e) {

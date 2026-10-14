@@ -46,7 +46,7 @@ function resolveImages(root: HTMLElement) {
     const src = img.getAttribute('src') ?? '';
     if (!src.startsWith(IMAGE_PREFIX)) return;
     const name = src.slice(IMAGE_PREFIX.length);
-    const repoPath = `public/data/images/${name}`;
+    const repoPath = `docs/data/images/${name}`;
     img.src = localImages.get(name) ?? `${BASE}data/${src}`;
     img.loading = 'lazy';
     // デプロイ完了前はリポジトリの生ファイルを表示する

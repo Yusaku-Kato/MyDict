@@ -1,11 +1,11 @@
-// public/data/terms/*.json から一覧用の public/data/index.json を生成する。
+// docs/data/terms/*.json から一覧用の docs/data/index.json を生成する。
 // 一覧には本文 (body) を含めず軽量に保ち、本文は詳細画面で個別に読み込む。
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const termsDir = join(root, 'public', 'data', 'terms');
+const termsDir = join(root, 'docs', 'data', 'terms');
 const READING = /^[ぁ-ゖー\s]+$/u;
 
 const files = (await readdir(termsDir)).filter((f) => f.endsWith('.json'));
@@ -27,5 +27,10 @@ for (const file of files) {
 
 const collator = new Intl.Collator('ja');
 index.sort((a, b) => collator.compare(a.reading, b.reading) || collator.compare(a.name, b.name));
-await writeFile(join(root, 'public', 'data', 'index.json'), JSON.stringify(index));
+await writeFile(join(root, 'docs', 'data', 'index.json'), serialize(index));
 console.log(`index.json: ${index.length} terms`);
+
+// 差分が見やすいよう 1 用語 1 行で書き出す（src/store.ts の serializeIndex と同じ形式）
+function serialize(entries) {
+  return `[\n${entries.map((e) => JSON.stringify(e)).join(',\n')}\n]\n`;
+}

@@ -13,8 +13,8 @@
 | ビルド | Vite 8（`@preact/preset-vite`） |
 | Markdown | marked + DOMPurify（サニタイズ必須） |
 | 図 | Mermaid（遅延読み込み）、画像（PNG / JPEG / GIF / WebP / SVG） |
-| 配信 | GitHub Pages（`.github/workflows/deploy.yml`、main への push で自動デプロイ） |
-| 書き込み | ブラウザから GitHub Contents API へ直接コミット（Fine-grained PAT） |
+| 配信 | GitHub Pages（main ブランチの `docs/` を配信。push すると約 1 分で自動反映） |
+| 書き込み | ブラウザから GitHub Git Data API へ直接コミット（Fine-grained PAT） |
 
 ## 環境のルール
 
@@ -26,20 +26,34 @@
 ```sh
 npm install        # 依存のインストール
 npm run dev        # 開発サーバー（http://localhost:5173/MyDict/）
-npm run build      # index 生成 → 型チェック → 本番ビルド（dist/）
+npm run build      # index 生成 → 型チェック → 本番ビルド（docs/assets, docs/index.html）
 npm run preview    # ビルド結果の確認（http://localhost:4173/MyDict/）
-npm run index      # public/data/index.json だけ再生成
+npm run index      # docs/data/index.json だけ再生成
 ```
 
 変更後は必ず `npm run build` が通ることを確認する（テストフレームワークは未導入。型チェックがビルドに含まれる）。
 
+## デプロイ
+
+GitHub Actions は使っていない（gh トークンに `workflow` スコープがないため）。**ビルド成果物を `docs/` にコミットし、Pages が main の `/docs` を配信する**方式。
+
+1. `npm run build`（`docs/assets` と `docs/index.html` を置き換える。`docs/data` には触れない）
+2. `docs/` を含めてコミットし `git push`
+3. `gh api repos/Yusaku-Kato/MyDict/pages/builds/latest --jq .status` が `built` になれば反映済み
+
+**src を変更したら必ずビルドして docs/ も一緒にコミットする。** 忘れると公開サイトに反映されない。
+
 ## ディレクトリ構成
 
 ```
-public/data/terms/<id>.json   用語データ（1 用語 1 ファイル。リポジトリで管理）
-public/data/images/           詳細説明で使う画像
-public/data/index.json        一覧用インデックス（ビルド時に自動生成・gitignore）
+docs/                         GitHub Pages の配信ルート
+  index.html, assets/         ビルド成果物（npm run build で生成してコミット）
+  .nojekyll                   Jekyll 処理を無効化
+  data/terms/<id>.json        用語データ（1 用語 1 ファイル）
+  data/images/                詳細説明で使う画像
+  data/index.json             一覧用インデックス（本文以外。アプリが保存時に更新、npm run index でも再生成）
 scripts/build-index.mjs       terms/*.json を検証し index.json を生成
+vite.config.ts                出力先 docs/、開発時に docs/data を /MyDict/data/ で配信
 src/
   main.tsx                    エントリ。キャッシュ済み一覧で即描画→裏で最新を取得
   App.tsx                     ルートごとの画面切り替え（一覧は常にマウントしたまま隠す）
@@ -53,7 +67,7 @@ src/
 
 ## データ形式
 
-`public/data/terms/<id>.json`（ファイル名と `id` は一致させる）:
+`docs/data/terms/<id>.json`（ファイル名と `id` は一致させる）:
 
 ```json
 {
@@ -68,7 +82,8 @@ src/
 ```
 
 - `reading` はひらがなと長音記号「ー」のみ（`/^[ぁ-ゖー\s]+$/`）。一覧はこの読みの五十音順（`Intl.Collator('ja')`）で並ぶ。
-- 図: 本文中の ` ```mermaid ` コードブロックは Mermaid 図として描画。画像は `![説明](images/<ファイル名>)` で参照し、実体は `public/data/images/` に置く。
+- 図: 本文中の ` ```mermaid ` コードブロックは Mermaid 図として描画。画像は `![説明](images/<ファイル名>)` で参照し、実体は `docs/data/images/` に置く。
+- 用語ファイルを手で追加・編集したら `npm run index` で index.json を更新してコミットする。
 - `id` は `Date.now().toString(36)` + ランダム 4 文字。
 
 ## 高速な画面遷移のための設計（崩さないこと）
@@ -81,12 +96,13 @@ src/
 6. **Mermaid は遅延読み込み**: 図を含む本文のときだけ `import('mermaid')`。メインバンドルに入れない。
 7. View Transitions API で 120ms の短いクロスフェード。
 
-メインバンドル（`dist/assets/index-*.js`）は gzip 50KB 以下を目安に保つ。重いライブラリは動的 import にする。
+メインバンドル（`docs/assets/index-*.js`）は gzip 50KB 以下を目安に保つ。重いライブラリは動的 import にする。
 
 ## 書き込みの仕組み
 
 - 設定画面で保存した Fine-grained PAT（対象リポジトリのみ・Contents: Read and write）を localStorage に保持。
-- 保存・削除・画像追加はそれぞれ GitHub Contents API で 1 コミット → Actions が再ビルドしてデプロイ（約 1 分）。
+- 保存・削除は「用語ファイル + index.json」を Git Data API で 1 コミットにまとめる（index.json はリポジトリ上の最新版を読んで更新し、競合時は 1 度再試行）。画像追加も 1 コミット。
+- main へのコミットで Pages が再デプロイされる（約 1 分）。アプリのビルドは不要（データは docs/data を直接配信）。
 - デプロイ完了までは `store.ts` の `pending`（localStorage）で変更を上書き表示し、画像は raw.githubusercontent.com にフォールバックする。
 
 ## 注意事項

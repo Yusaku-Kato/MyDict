@@ -1,5 +1,3 @@
 node_modules/
-dist/
-public/data/index.json
 *.log
 .claude/settings.local.json

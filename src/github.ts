@@ -1,5 +1,6 @@
-// GitHub Contents API を使ってリポジトリ上のデータファイルを読み書きする。
+// GitHub API を使ってリポジトリ上のデータファイルを読み書きする。
 // 書き込みには Contents: Read and write 権限を持つ Personal Access Token が必要。
+// main ブランチへのコミットで GitHub Pages が自動的に再デプロイされる。
 
 export const REPO: string = import.meta.env.VITE_REPO || 'Yusaku-Kato/MyDict';
 export const BRANCH = 'main';
@@ -23,27 +24,81 @@ export function setToken(token: string) {
   }
 }
 
-async function request(path: string, init: RequestInit = {}) {
-  const res = await fetch(`${API}/repos/${REPO}/contents/${path}`, {
+class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function api<T>(path: string, init: RequestInit = {}, accept = 'application/vnd.github+json'): Promise<T> {
+  const res = await fetch(`${API}/repos/${REPO}/${path}`, {
     ...init,
+    cache: 'no-store',
     headers: {
-      Accept: 'application/vnd.github+json',
+      Accept: accept,
       Authorization: `Bearer ${getToken()}`,
       'X-GitHub-Api-Version': '2022-11-28',
       ...init.headers,
     },
   });
-  if (!res.ok && res.status !== 404) {
+  if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(`GitHub API ${res.status}: ${body.message ?? res.statusText}`);
+    const hint = res.status === 401 || res.status === 403 || res.status === 404 ? '（トークンの権限を確認してください）' : '';
+    throw new ApiError(res.status, `GitHub API ${res.status}: ${body.message ?? res.statusText}${hint}`);
   }
-  return res;
+  return accept.endsWith('raw') ? ((await res.text()) as T) : res.json();
 }
 
-async function getSha(path: string): Promise<string | undefined> {
-  const res = await request(`${path}?ref=${BRANCH}`, { cache: 'no-store' });
-  if (res.status === 404) return undefined;
-  return (await res.json()).sha;
+/** main の最新コミット上のテキストファイルを読む（Pages のキャッシュを経由しない） */
+export async function readRepoText(path: string, ref: string): Promise<string> {
+  return api<string>(`contents/${path}?ref=${ref}`, {}, 'application/vnd.github.raw');
+}
+
+export interface FileChange {
+  path: string;
+  /** base64 の内容。null ならファイルを削除する */
+  base64: string | null;
+}
+
+/**
+ * 複数ファイルの変更を 1 コミットにまとめて main に反映する。
+ * `build` は最新コミットの SHA を受け取り変更内容を返す。他端末と競合したら最新を読み直して 1 度だけ再試行する。
+ */
+export async function commitFiles(message: string, build: (headSha: string) => Promise<FileChange[]>) {
+  for (let attempt = 0; ; attempt++) {
+    const ref = await api<{ object: { sha: string } }>(`git/ref/heads/${BRANCH}`);
+    const head = ref.object.sha;
+    const commit = await api<{ tree: { sha: string } }>(`git/commits/${head}`);
+    const changes = await build(head);
+    const tree = await Promise.all(
+      changes.map(async ({ path, base64 }) => {
+        if (base64 === null) return { path, mode: '100644', type: 'blob', sha: null };
+        const blob = await api<{ sha: string }>('git/blobs', {
+          method: 'POST',
+          body: JSON.stringify({ content: base64, encoding: 'base64' }),
+        });
+        return { path, mode: '100644', type: 'blob', sha: blob.sha };
+      }),
+    );
+    const newTree = await api<{ sha: string }>('git/trees', {
+      method: 'POST',
+      body: JSON.stringify({ base_tree: commit.tree.sha, tree }),
+    });
+    const newCommit = await api<{ sha: string }>('git/commits', {
+      method: 'POST',
+      body: JSON.stringify({ message, tree: newTree.sha, parents: [head] }),
+    });
+    try {
+      await api(`git/refs/heads/${BRANCH}`, { method: 'PATCH', body: JSON.stringify({ sha: newCommit.sha }) });
+      return;
+    } catch (e) {
+      // fast-forward できない（他の変更が先に入った）場合は 422
+      if (!(e instanceof ApiError && e.status === 422) || attempt >= 1) throw e;
+    }
+  }
 }
 
 export function utf8ToBase64(text: string): string {
@@ -56,22 +111,6 @@ export function bytesToBase64(bytes: Uint8Array): string {
     bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return btoa(bin);
-}
-
-/** ファイルを作成または上書きする（1 回のコミット） */
-export async function putFile(path: string, base64: string, message: string) {
-  const sha = await getSha(path);
-  const res = await request(path, {
-    method: 'PUT',
-    body: JSON.stringify({ message, content: base64, branch: BRANCH, sha }),
-  });
-  if (res.status === 404) throw new Error('リポジトリが見つかりません。トークンの権限を確認してください。');
-}
-
-export async function deleteFile(path: string, message: string) {
-  const sha = await getSha(path);
-  if (!sha) return;
-  await request(path, { method: 'DELETE', body: JSON.stringify({ message, sha, branch: BRANCH }) });
 }
 
 /** トークンでリポジトリに書き込めるか確認する */

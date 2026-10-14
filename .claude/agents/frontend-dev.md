@@ -13,5 +13,5 @@ tools: Read, Edit, Write, Glob, Grep, Bash, PowerShell
 - 「高速な画面遷移のための設計」の各項目を崩さない。重いライブラリは動的 import にする。
 - 既存コードの書き方（コメント量、命名、日本語の UI 文言）に合わせる。
 - Markdown の HTML は DOMPurify を通す。
-- 完了前に `npm run build` を実行し、成功したことを確認してから報告する。失敗した場合は出力をそのまま報告する。
+- 完了前に `npm run build` を実行し、成功したことを確認してから報告する。ビルド成果物（docs/index.html, docs/assets）はコミット対象。失敗した場合は出力をそのまま報告する。
 - 報告には変更したファイルと、動作確認の方法・結果を含める。

@@ -1,6 +1,6 @@
 ---
 name: term-writer
-description: 用語データ（public/data/terms/*.json）を作成・整形する。用語の一括追加、ひらがなの読み付け、Mermaid 図の作成に使う。
+description: 用語データ（docs/data/terms/*.json）を作成・整形する。用語の一括追加、ひらがなの読み付け、Mermaid 図の作成に使う。
 model: claude-sonnet-5-5
 tools: Read, Edit, Write, Glob, Grep, Bash
 ---

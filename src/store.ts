@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { collator } from './kana';
-import { putFile, deleteFile, utf8ToBase64 } from './github';
+import { commitFiles, readRepoText, utf8ToBase64, bytesToBase64 } from './github';
 import { preloadMermaidIfNeeded } from './Markdown';
 
 export interface TermMeta {
@@ -66,9 +66,7 @@ function recompute() {
     else if (p.term) byId.set(id, metaOf(p.term));
   }
   save(PENDING_KEY, pending);
-  terms = [...byId.values()].sort(
-    (a, b) => collator.compare(a.reading, b.reading) || collator.compare(a.name, b.name),
-  );
+  terms = sortTerms([...byId.values()]);
   listeners.forEach((l) => l());
 }
 
@@ -144,21 +142,51 @@ export function prefetch(id: string) {
 }
 
 // ---- 書き込み ----
+export const DATA_DIR = 'docs/data';
+const INDEX_PATH = `${DATA_DIR}/index.json`;
+
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+function sortTerms(list: TermMeta[]): TermMeta[] {
+  return list.sort((a, b) => collator.compare(a.reading, b.reading) || collator.compare(a.name, b.name));
+}
+
+/** scripts/build-index.mjs と同じ形式（1 用語 1 行）で書き出す */
+function serializeIndex(list: TermMeta[]): string {
+  return `[\n${list.map((e) => JSON.stringify(e)).join(',\n')}\n]\n`;
+}
+
+/** リポジトリ上の最新 index.json を読み、変更を加えた新しい内容を返す */
+async function updatedIndex(head: string, edit: (list: TermMeta[]) => TermMeta[]) {
+  const list = JSON.parse(await readRepoText(INDEX_PATH, head)) as TermMeta[];
+  return utf8ToBase64(serializeIndex(sortTerms(edit(list))));
+}
+
+/** 用語ファイルと index.json を 1 コミットで保存する */
 export async function saveTerm(term: Term) {
-  const json = JSON.stringify(term, null, 2) + '\n';
   const isNew = !findMeta(term.id);
-  await putFile(`public/data/terms/${term.id}.json`, utf8ToBase64(json), `${isNew ? 'Add' : 'Update'} term: ${term.name}`);
+  await commitFiles(`${isNew ? 'Add' : 'Update'} term: ${term.name}`, async (head) => [
+    { path: `${DATA_DIR}/terms/${term.id}.json`, base64: utf8ToBase64(JSON.stringify(term, null, 2) + '\n') },
+    { path: INDEX_PATH, base64: await updatedIndex(head, (list) => [...list.filter((t) => t.id !== term.id), metaOf(term)]) },
+  ]);
   pending[term.id] = { term, at: Date.now() };
   recompute();
 }
 
 export async function removeTerm(id: string) {
   const name = findMeta(id)?.name ?? id;
-  await deleteFile(`public/data/terms/${id}.json`, `Delete term: ${name}`);
+  await commitFiles(`Delete term: ${name}`, async (head) => [
+    { path: `${DATA_DIR}/terms/${id}.json`, base64: null },
+    { path: INDEX_PATH, base64: await updatedIndex(head, (list) => list.filter((t) => t.id !== id)) },
+  ]);
   pending[id] = { deleted: true, at: Date.now() };
   recompute();
+}
+
+export async function uploadImage(fileName: string, bytes: Uint8Array) {
+  await commitFiles(`Add image: ${fileName}`, async () => [
+    { path: `${DATA_DIR}/images/${fileName}`, base64: bytesToBase64(bytes) },
+  ]);
 }
