@@ -1,0 +1,23 @@
+{
+  "name": "mydict",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "index": "node scripts/build-index.mjs",
+    "dev": "npm run index && vite",
+    "build": "npm run index && tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
+    "mermaid": "^12.2.0",
+    "preact": "^11.0.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}
