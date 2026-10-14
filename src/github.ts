@@ -25,11 +25,10 @@ export function setToken(token: string) {
 }
 
 class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
